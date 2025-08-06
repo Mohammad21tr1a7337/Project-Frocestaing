@@ -1,42 +1,73 @@
-# forecast.py
-
 import streamlit as st
 import pandas as pd
+import numpy as np
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
-import plotly.graph_objs as go
+import plotly.graph_objects as go
 
-st.set_page_config(page_title="⚡ Energy Forecasting (Light)", layout="wide")
+# Set page config
+st.set_page_config(page_title="⚡ Energy Forecast", layout="wide")
 
-st.title("Energy Consumption Forecasting — Holt-Winters")
+# Background Image
+page_bg_img = """
+<style>
+[data-testid="stAppViewContainer"] {
+    background-image: url("https://images.unsplash.com/photo-1581090700227-1e8e5f9a89c1");
+    background-size: cover;
+    background-position: center;
+}
+[data-testid="stHeader"], [data-testid="stSidebar"] {
+    background: rgba(255,255,255,0.8);
+}
+</style>
+"""
+st.markdown(page_bg_img, unsafe_allow_html=True)
 
+# Title
+st.title("⚡ PJM Energy Consumption Forecasting (Holt-Winters)")
+
+# Load data
 @st.cache_data
 def load_data():
-    # Load only last 60 days of data
-    df = pd.read_csv("PJMW_hourly.csv", parse_dates=["Datetime"], usecols=["Datetime", "PJMW_MW"])
-    df = df.rename(columns={"Datetime":"ds","PJMW_MW":"y"})
-    df = df[df["ds"] >= df["ds"].max() - pd.Timedelta(days=60)]
+    df = pd.read_csv("PJMW_hourly.csv", parse_dates=["Datetime"])
+    df = df[["Datetime", "PJMW_MW"]].rename(columns={"Datetime": "ds", "PJMW_MW": "y"})
     df = df.set_index("ds").resample("D").mean().dropna()
     return df
 
 df = load_data()
-st.subheader("Latest 60 Days (Daily Avg)")
-st.dataframe(df.tail())
 
-days = st.number_input("Days to forecast:", min_value=1, max_value=30, value=7)
+st.subheader("📊 Recent Data")
+st.dataframe(df.tail(10))
 
-with st.spinner("🔄 Forecasting..."):
-    model = ExponentialSmoothing(df['y'], trend='add', seasonal='add', seasonal_periods=7)
-    fit = model.fit()
-    future_idx = pd.date_range(start=df.index[-1]+pd.Timedelta(days=1), periods=days)
-    forecast_vals = fit.forecast(days)
+# User input
+days = st.slider("Select number of days to forecast", 1, 60, 15)
 
-forecast_df = pd.DataFrame({"ds": future_idx, "Forecast": forecast_vals})
-st.subheader("Forecast Results")
+# Model
+model = ExponentialSmoothing(df['y'], trend="add", seasonal="add", seasonal_periods=7)
+fit = model.fit()
+
+forecast = fit.forecast(days)
+forecast_index = pd.date_range(start=df.index[-1] + pd.Timedelta(days=1), periods=days)
+forecast_df = pd.DataFrame({"ds": forecast_index, "Forecast": forecast.values})
+
+# Show forecast
+st.subheader("📈 Forecast Table")
 st.dataframe(forecast_df)
 
+# Plot
+st.subheader("📉 Forecast Chart")
 fig = go.Figure()
-fig.add_trace(go.Scatter(x=df.index, y=df['y'], name="Historical"))
-fig.add_trace(go.Scatter(x=forecast_df["ds"], y=forecast_df["Forecast"], name="Forecast"))
-fig.update_layout(xaxis_title="Date", yaxis_title="Energy Consumption", height=500)
-st.subheader("Forecast Plot")
+
+# Actual
+fig.add_trace(go.Scatter(x=df.index, y=df['y'], mode='lines', name='Actual'))
+
+# Forecast
+fig.add_trace(go.Scatter(x=forecast_df['ds'], y=forecast_df['Forecast'], mode='lines', name='Forecast'))
+
+fig.update_layout(
+    xaxis_title="Date",
+    yaxis_title="Energy Consumption (MW)",
+    height=600,
+    legend=dict(x=0, y=1)
+)
+
 st.plotly_chart(fig, use_container_width=True)
