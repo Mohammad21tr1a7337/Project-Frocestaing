@@ -1,94 +1,79 @@
+# streamlit_app.py
 
 import streamlit as st
 import pandas as pd
-import numpy as np
 from prophet import Prophet
-import prophet
-import plotly.express as px
+import plotly.graph_objs as go
 from PIL import Image
-import base64
 
-# Fix for cmdstanpy backend
-prophet.models.forecaster._validate_inputs = lambda *args, **kwargs: None
+# Set page config
+st.set_page_config(page_title="Energy Consumption Forecasting", layout="wide")
 
-# ----------------------------- NumPy Compatibility Check -----------------------------
-required_numpy = "1.26"
-if not np.__version__.startswith(required_numpy):
-    raise ImportError(
-        f"❌ Detected NumPy version {np.__version__}. "
-        f"This app requires NumPy {required_numpy}.x to work correctly.\n"
-        f"➡️ Please install with: pip install numpy==1.26.4"
-    )
+# Background styling
+page_bg_img = """
+<style>
+[data-testid="stAppViewContainer"] {
+    background-image: url("https://images.unsplash.com/photo-1581090700227-1e8e5f9a89c1");
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+[data-testid="stHeader"] {
+    background: rgba(0,0,0,0);
+}
+[data-testid="stSidebar"] {
+    background: rgba(255,255,255,0.8);
+}
+</style>
+"""
+st.markdown(page_bg_img, unsafe_allow_html=True)
 
-# ----------------------------- Background Setup -----------------------------
-def add_bg_image(image_path):
-    try:
-        with open(image_path, "rb") as f:
-            encoded = base64.b64encode(f.read()).decode()
-        css = f"""
-        <style>
-        .stApp {{
-            background-image: url("data:image/jpg;base64,{encoded}");
-            background-size: cover;
-            background-position: center;
-            background-repeat: no-repeat;
-        }}
-        </style>
-        """
-        st.markdown(css, unsafe_allow_html=True)
-    except:
-        st.warning("⚠️ Background image not found. Proceeding without it.")
+# Title
+st.title("⚡ Energy Consumption Forecasting with Prophet")
 
-add_bg_image("electricity_bg.jpg")
+# Upload or load data
+@st.cache_data
+def load_data():
+    # Load your data here, or read from a file
+    df = pd.read_csv("energy_consumption.csv")  # change to actual file
+    df.rename(columns={"timestamp": "ds", "consumption": "y"}, inplace=True)
+    df['ds'] = pd.to_datetime(df['ds'])
+    return df
 
-st.set_page_config(page_title="Forecasting App", layout="wide")
-st.markdown("<h1 style='text-align: center; color: white;'>🔌 Energy Forecasting App</h1>", unsafe_allow_html=True)
+df = load_data()
+st.subheader("📊 Historical Energy Consumption Data")
+st.dataframe(df.tail(10))
 
-uploaded_file = st.file_uploader("PJMW_hourly", type=["csv", "xlsx", "xls"])
+# User input
+days = st.number_input("Enter number of days to forecast:", min_value=1, max_value=365, value=30)
 
-if uploaded_file:
-    try:
-        if uploaded_file.name.endswith(".csv"):
-            df = pd.read_csv(uploaded_file)
-        else:
-            df = pd.read_excel(uploaded_file)
+# Prophet model
+model = Prophet()
+model.fit(df)
 
-        st.success("✅ File uploaded successfully!")
+# Make future dataframe
+future = model.make_future_dataframe(periods=days)
+forecast = model.predict(future)
 
-        ds_col = st.selectbox("📅 Select the Date/Time column", df.columns)
-        y_col = st.selectbox("⚡ Select the Energy Usage column", df.select_dtypes(include=np.number).columns)
+# Show forecasted data
+st.subheader("📈 Forecasted Energy Consumption")
+st.dataframe(forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].tail(days))
 
-        df[ds_col] = pd.to_datetime(df[ds_col])
-        df = df[[ds_col, y_col]].dropna().rename(columns={ds_col: "ds", y_col: "y"})
+# Plot
+st.subheader("📉 Forecast Plot")
+fig = go.Figure()
 
-        freq_option = st.radio("⏱️ Choose aggregation frequency:", ["Hourly", "Daily", "Monthly"])
-        freq_map = {"Hourly": "H", "Daily": "D", "Monthly": "M"}
-        freq = freq_map[freq_option]
+# Add past data
+fig.add_trace(go.Scatter(x=df['ds'], y=df['y'], mode='lines', name='Actual'))
 
-        df = df.set_index("ds").resample(freq).sum().reset_index()
+# Add forecast
+fig.add_trace(go.Scatter(x=forecast['ds'], y=forecast['yhat'], mode='lines', name='Forecast'))
 
-        periods = st.number_input("🔮 Forecast how many future periods?", min_value=1, max_value=365, value=30)
-
-        model = Prophet()
-        model.fit(df)
-        future = model.make_future_dataframe(periods=periods, freq=freq)
-        forecast = model.predict(future)
-
-        st.subheader("📋 Forecasted Values")
-        forecast_output = forecast[["ds", "yhat"]].tail(periods)
-        forecast_output.columns = ["Date", "Forecasted Energy Usage"]
-        st.dataframe(forecast_output, use_container_width=True)
-
-        st.subheader("📈 Forecast Chart")
-        fig = px.line(forecast, x='ds', y='yhat', title="Forecasted Energy Usage")
-        fig.add_scatter(x=df['ds'], y=df['y'], mode='lines', name='Actual Usage')
-        fig.update_layout(legend=dict(x=0.01, y=0.99))
-        st.plotly_chart(fig, use_container_width=True)
-
-        with st.expander("🧩 Forecast Components"):
-            st.write(model.plot_components(forecast))
-
-    except Exception as e:
-        st.error(f"❌ Something went wrong: {e}")
-else:
-    st.info("👆 Please upload your time series dataset to begin.")
+# Layout
+fig.update_layout(
+    xaxis_title='Date',
+    yaxis_title='Energy Consumption',
+    legend=dict(x=0, y=1),
+    height=600
+)
+st.plotly_chart(fig, use_container_width=True)
