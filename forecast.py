@@ -31,7 +31,7 @@ st.title("⚡ Energy Consumption Forecasting with Prophet")
 # Load data
 @st.cache_data
 def load_data():
-    df = pd.read_csv("energy_consumption.csv")
+    df = pd.read_csv("PJMW_hourly.csv")
     df.rename(columns={"timestamp": "ds", "consumption": "y"}, inplace=True)
     df["ds"] = pd.to_datetime(df["ds"])
     df = df.sort_values("ds").tail(500)  # TEMP: Limit to last 500 rows for speed
